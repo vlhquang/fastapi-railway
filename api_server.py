@@ -3,7 +3,6 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from Core.analysis_engine_api import AnalysisEngineAPI
 from Core.database_manager import DatabaseManager
-from main_window import ApiManager  # Import ApiManager from main_window.py
 from fastapi.middleware.cors import CORSMiddleware
 from Core.gemini_manager import GeminiManager
 
