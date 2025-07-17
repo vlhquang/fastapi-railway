@@ -7,6 +7,10 @@ from Core.database_manager import DatabaseManager
 from main_window import ApiManager  # Import ApiManager from main_window.py
 from fastapi.middleware.cors import CORSMiddleware
 from Core.gemini_manager import GeminiManager
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_cache.decorator import cache
+import time
 
 app = FastAPI()
 
@@ -79,11 +83,22 @@ class AiSuggestion(BaseModel):
     analysisData: dict  # Accept as JSON string
     marketKeywords: list[str]
 
+@app.on_event("startup")
+async def startup():
+    FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+
+@app.get("/time")
+@cache(expire=10)  # TTL 10 giây
+async def get_time():
+    return {"time": time.time()}
+
 @app.get("/")
 def healthcheck():
     return {"status": "ok"}
 
 @app.post("/discoverKeywords")
+@cache(expire=15*60)  # TTL 15 phút
+@cache(namespace="discover_keywords")  # Sử dụng namespace để phân tách cache
 def discoverKeywords(request: DiscoverKeywords):
     logging.info(f"Received request to discover keywords: {request.keyword}, Region: {request.regionCode}, Radar: {request.radar}")
     # 1
