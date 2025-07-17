@@ -26,7 +26,7 @@ class ApiManager:
         try:
             request = self.Youtube.search().list(**kwargs); response = request.execute(); return response.get("items", [])
         except HttpError as e:
-            if e.resp.status == 403:
+            if e.resp.status == 403 or e.resp.status == 400:
                 if self._rotate_key_and_retry(): return self.search(**kwargs)
             logging.error(f"Lỗi API khi tìm kiếm: {e}", exc_info=True); return []
     def get_video_details(self, video_ids: list):
