@@ -3,3 +3,4 @@ uvicorn
 pydantic
 google-generativeai
 isodate
+google-api-python-client
