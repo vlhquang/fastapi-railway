@@ -1,4 +1,5 @@
 import json
+import logging
 from fastapi import FastAPI
 from pydantic import BaseModel
 from Core.analysis_engine_api import AnalysisEngineAPI
@@ -84,7 +85,7 @@ def healthcheck():
 
 @app.post("/discoverKeywords")
 def discoverKeywords(request: DiscoverKeywords):
-    
+    logging.info(f"Received request to discover keywords: {request.keyword}, Region: {request.regionCode}, Radar: {request.radar}")
     # 1
     result = engine.discover_keywords(request.keyword, request.regionCode, request.radar)
     # 2
