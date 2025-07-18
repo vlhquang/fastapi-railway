@@ -134,7 +134,7 @@ async def discoverKeywords(request: DiscoverKeywords):
     cached = await backend.get(key)
     if cached:
         print("✅ From cache")
-        return json.loads(cached)
+        return {"result": json.loads(cached)}
 
     # Nếu chưa có cache, xử lý bình thường
     print("💡 Cache miss")
@@ -157,7 +157,7 @@ async def fullAnalysisForKeyword(request: FullAnalysisForKeyword):
     cached = await backend.get(key)
     if cached:
         print("✅ From cache")
-        return json.loads(cached)
+        return {"result": json.loads(cached)}
 
     # Nếu chưa có cache, xử lý bình thường
     print("💡 Cache miss")
@@ -180,7 +180,7 @@ async def fullAnalysisByChannelId(request: FullAnalysisByChannelId):
     cached = await backend.get(key)
     if cached:
         print("✅ From cache")
-        return json.loads(cached)
+        return {"result": json.loads(cached)}
 
     # Nếu chưa có cache, xử lý bình thường
     print("💡 Cache miss")
