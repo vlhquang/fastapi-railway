@@ -10,6 +10,9 @@ from Core.gemini_manager import GeminiManager
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.decorator import cache
+import hashlib
+import json
+
 import time
 
 app = FastAPI()
@@ -55,6 +58,10 @@ class SomeClass:
         key_path = os.path.join("Account", "studio_gemini.key")
         gemini_api_key = open(key_path, 'r').read().strip()
         return GeminiManager(api_key=gemini_api_key)
+    
+    def saveCache(self, key, value, expire=15*60):
+        backend = FastAPICache.get_backend()
+        return backend.set(key, json.dumps(value), expire=expire)
 
 # Load API keys (use a placeholder or load from file as in main_window.py)
 # api_key_path = "Account/studio_gemini.key"  # Or another .key file in Account/
@@ -85,12 +92,31 @@ class AiSuggestion(BaseModel):
 
 @app.on_event("startup")
 async def startup():
+    logging.basicConfig(level=logging.INFO)
+    logging.info("Starting FastAPI server...")
+
     FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
 
-@app.get("/time")
+@app.post("/time")
 @cache(expire=10)  # TTL 10 giây
-async def get_time():
-    return {"time": time.time()}
+async def get_time(request: DiscoverKeywords):
+    key = hashlib.md5(json.dumps(request.keyword, sort_keys=True).encode()).hexdigest()
+    # backend = FastAPICache.get_backend()
+
+    # cached = await backend.get(key)
+    # if cached:
+    #     print("✅ From cache")
+    #     return json.loads(cached)
+
+    # # Nếu chưa có cache, xử lý bình thường
+    # print("💡 Cache miss")
+    # result = {"data": "real result"}
+    # await backend.set(key, json.dumps(result), expire=15 * 60)
+    # return result
+
+    some_class.saveCache(key, {"data": "real result"}, expire=15 * 60)
+    time.sleep(2)  # Giả lập thời gian xử lý
+    return {"data": "real result"}
 
 @app.get("/")
 def healthcheck():
@@ -98,31 +124,68 @@ def healthcheck():
 
 @app.post("/discoverKeywords")
 @cache(expire=15*60)  # TTL 15 phút
-@cache(namespace="discover_keywords")  # Sử dụng namespace để phân tách cache
-def discoverKeywords(request: DiscoverKeywords):
+# @cache(namespace="discover_keywords")  # Sử dụng namespace để phân tách cache
+async def discoverKeywords(request: DiscoverKeywords):
     logging.info(f"Received request to discover keywords: {request.keyword}, Region: {request.regionCode}, Radar: {request.radar}")
-    # 1
+
+    key = hashlib.md5(json.dumps("discoverKeywords".join(request.keyword).join(request.regionCode).join(request.radar), sort_keys=True).encode()).hexdigest()
+    backend = FastAPICache.get_backend()
+
+    cached = await backend.get(key)
+    if cached:
+        print("✅ From cache")
+        return json.loads(cached)
+
+    # Nếu chưa có cache, xử lý bình thường
+    print("💡 Cache miss")
     result = engine.discover_keywords(request.keyword, request.regionCode, request.radar)
-    # 2
-    # result = engine.full_analysis_for_keyword(request.keyword, request.region_code)
+    await backend.set(key, json.dumps(result), expire=15 * 60)
     return {"result": result}
 
 @app.post("/fullAnalysisForKeyword")
-def fullAnalysisForKeyword(request: FullAnalysisForKeyword):
+async def fullAnalysisForKeyword(request: FullAnalysisForKeyword):
     
     # 1
     # result = engine.discover_keywords(request.keyword, request.region_code, request.radar)
     # 2
+    # result = engine.full_analysis_for_keyword(request.keyword, request.regionCode)
+    # return {"result": result}
+
+    key = hashlib.md5(json.dumps('fullAnalysisForKeyword'.join(request.keyword).join(request.regionCode), sort_keys=True).encode()).hexdigest()
+    backend = FastAPICache.get_backend()
+
+    cached = await backend.get(key)
+    if cached:
+        print("✅ From cache")
+        return json.loads(cached)
+
+    # Nếu chưa có cache, xử lý bình thường
+    print("💡 Cache miss")
     result = engine.full_analysis_for_keyword(request.keyword, request.regionCode)
+    await backend.set(key, json.dumps(result), expire=15 * 60)
     return {"result": result}
 
 @app.post("/fullAnalysisByChannelId")
-def fullAnalysisByChannelId(request: FullAnalysisByChannelId):
+async def fullAnalysisByChannelId(request: FullAnalysisByChannelId):
     
     # 1
     # result = engine.discover_keywords(request.keyword, request.region_code, request.radar)
     # 2
+    # result = engine.analyze_competitor_for_m4(request.channelId, request.marketKeywords)
+    # return {"result": result}
+
+    key = hashlib.md5(json.dumps("fullAnalysisByChannelId".join(request.channelId).join(request.marketKeywords), sort_keys=True).encode()).hexdigest()
+    backend = FastAPICache.get_backend()
+
+    cached = await backend.get(key)
+    if cached:
+        print("✅ From cache")
+        return json.loads(cached)
+
+    # Nếu chưa có cache, xử lý bình thường
+    print("💡 Cache miss")
     result = engine.analyze_competitor_for_m4(request.channelId, request.marketKeywords)
+    await backend.set(key, json.dumps(result), expire=15 * 60)
     return {"result": result}
 
 @app.post("/aiSuggestion")

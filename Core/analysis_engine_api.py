@@ -66,11 +66,11 @@ class AnalysisEngineAPI:
         Đã loại bỏ các chỉ số 7 ngày.
         """
         # 1. Kiểm tra cache trước
-        cached_result = self.db.get_analysis_result(keyword)
-        if cached_result:
-            # Lấy danh sách đối thủ từ cache
-            cached_result['competitors'] = self.db.get_competitors(keyword)
-            return cached_result
+        # cached_result = self.db.get_analysis_result(keyword)
+        # if cached_result:
+        #     # Lấy danh sách đối thủ từ cache
+        #     cached_result['competitors'] = self.db.get_competitors(keyword)
+        #     return cached_result
 
         # 2. Phân tích nếu không có cache
 
@@ -99,8 +99,8 @@ class AnalysisEngineAPI:
         }
         
         # Lưu kết quả mới vào DB
-        self.db.save_analysis_result(result)
-        self.db.save_competitors(keyword, competitors)
+        # self.db.save_analysis_result(result)
+        # self.db.save_competitors(keyword, competitors)
         return result
 
     def find_competitors(self, keyword, region_code, limit=5):
@@ -200,6 +200,7 @@ class AnalysisEngineAPI:
 
     # Sửa đổi để xử lý regionCode rỗng
     def find_competitors(self, keyword, region_code, limit=20):
+        logging.info(f'find_competitors keyword limit 20: {keyword}, region_code: {region_code}')
         params = {
             'part': "snippet", 'q': keyword, 'type': "video", 'maxResults': 50, 'order': 'relevance'
         }
@@ -231,14 +232,18 @@ class AnalysisEngineAPI:
             if 'top_video' not in channel:
                 logging.info(f"Finding top video for new channel: {channel['snippet']['title']}")
                 top_video_search = self.api.search(part="snippet", q="", channelId=channel['id'], order='viewCount', type='video', maxResults=1)
+                # logging.info(f"Top video search result: {top_video_search}")
                 if top_video_search:
                     top_video_details = self.api.get_video_details([top_video_search[0]['id']['videoId']])
+                    # logging.info(f"Top video details: {top_video_details}")
                     if top_video_details:
                         channel['top_video'] = top_video_details[0]
                 else:
                     channel['top_video'] = {} # Đánh dấu đã tìm để không tìm lại
         
-        return sorted(channel_details, key=lambda x: int(x.get('statistics', {}).get('subscriberCount', 0)), reverse=True)
+        # return sorted(channel_details, key=lambda x: int(x.get('statistics', {}).get('subscriberCount', 0)), reverse=True)
+        logging.info(f"Finish find_competitors 20 channels for keyword: {keyword}")
+        return channel_details
 
     def analyze_competitor_for_m4(self, channel_id, market_keywords):
         """
@@ -249,7 +254,7 @@ class AnalysisEngineAPI:
 
         # 1. Lấy thông tin cơ bản của kênh
         channel_details_list = self.api.get_channel_details([channel_id])
-        if not channel_details_list:
+        if not channel_details_list: 
             return {"error": "Không thể lấy thông tin kênh."}
         
         channel_info = channel_details_list[0]
