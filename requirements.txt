@@ -5,3 +5,4 @@ google-generativeai
 isodate
 google-api-python-client
 fastapi-cache2
+asyncpg

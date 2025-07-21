@@ -15,6 +15,8 @@ import json
 
 import time
 
+from db import connect_db, close_db, fetch_now, fetch_now_timezone, data_analytics_by_module_insert
+
 app = FastAPI()
 
 app.add_middleware(
@@ -96,6 +98,22 @@ async def startup():
     logging.info("Starting FastAPI server...")
 
     FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+
+    await connect_db()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await close_db()
+
+@app.get("/db-time")
+async def get_db_time():
+    now = await fetch_now()
+    return {"db_time": str(now)}
+
+@app.get("/timezone")
+async def get_timezone():
+    timezone = await fetch_now_timezone()
+    return {"timezone": timezone}
 
 @app.post("/time")
 @cache(expire=10)  # TTL 10 giây
@@ -193,4 +211,9 @@ def aiSuggestion(request: AiSuggestion):
     GeminiManager = some_class.GeminiManager
  
     result = GeminiManager.get_overtake_plan(request.analysisData.get('result'), request.marketKeywords)
+    return {"result": result}
+
+@app.post("/dataAnalyticsByModuleInsert")
+async def dataAnalyticsByModuleInsert():
+    result = await data_analytics_by_module_insert('test_module', 'test_user', {'key': 'value'}, {'response': 'data'})
     return {"result": result}
