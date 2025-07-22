@@ -145,7 +145,7 @@ async def discoverKeywords(request: DiscoverKeywords):
 
     cached = await some_class.ManageCache.get(key)
     if cached:
-        print("✅ From cache")
+        logging.info(f"Cache in memory hit for key: {key}")
         return {"result": json.loads(cached)}
     
     cacheDB = await getDataAnalyticsByModule('module1', json.dumps({
@@ -153,12 +153,11 @@ async def discoverKeywords(request: DiscoverKeywords):
         "regionCode": request.regionCode,
         "radar": request.radar
     }))
-    logging.info(f"cacheDB: {cacheDB}")
     if cacheDB:
-        print("✅ From cache DB")
+        logging.info(f"Cache hit in database for key: {key}")
         return {"result": json.loads(cacheDB['response_data'])}
     # Nếu chưa có cache, xử lý bình thường
-    print("💡 Cache miss")
+    logging.info(f"Cache miss for key: {key}, processing request...")
     result = engine.discover_keywords(request.keyword, request.regionCode, request.radar)
     await data_analytics_by_module_insert(
         'module1',
