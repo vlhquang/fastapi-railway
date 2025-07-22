@@ -5,6 +5,7 @@ import json
 import json as pyjson
 
 from fastapi import HTTPException
+import logging
 
 load_dotenv()
 
@@ -31,6 +32,16 @@ async def fetch_now():
 async def fetch_now_timezone():
     async with db_pool.acquire() as conn:
         result = await conn.fetchval("SHOW TIME ZONE")
+        return result
+    
+async def getDataAnalyticsByModule(module: str, request_data: str):
+    query = """
+        SELECT * FROM youtrader.data_analytics_by_module
+         WHERE module=$1 AND request_data=$2
+    """
+    async with db_pool.acquire() as conn:
+        logging.info(f"Fetching data analytics for module: {module}, request_data: {request_data}")
+        result = await conn.fetchrow(query, module, request_data)
         return result
     
 async def data_analytics_by_module_insert(module: str, userid_scan: str, request_data: json, response_data: json):

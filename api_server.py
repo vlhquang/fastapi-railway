@@ -15,7 +15,8 @@ import json
 
 import time
 
-from db import connect_db, close_db, fetch_now, fetch_now_timezone, data_analytics_by_module_insert
+from db import connect_db, close_db, fetch_now, fetch_now_timezone, data_analytics_by_module_insert, getDataAnalyticsByModule
+from manage_cache import ManageCache
 
 app = FastAPI()
 
@@ -31,6 +32,7 @@ class SomeClass:
     def __init__(self):
         self.api_keys = self._load_api_keys()
         self.GeminiManager = self.get_gemini_manager()
+        self.ManageCache = ManageCache()
 
     def _load_api_keys(self, account_dir="Account"):
         import glob, os, logging
@@ -60,10 +62,6 @@ class SomeClass:
         key_path = os.path.join("Account", "studio_gemini.key")
         gemini_api_key = open(key_path, 'r').read().strip()
         return GeminiManager(api_key=gemini_api_key)
-    
-    def saveCache(self, key, value, expire=15*60):
-        backend = FastAPICache.get_backend()
-        return backend.set(key, json.dumps(value), expire=expire)
 
 # Load API keys (use a placeholder or load from file as in main_window.py)
 # api_key_path = "Account/studio_gemini.key"  # Or another .key file in Account/
@@ -97,44 +95,40 @@ async def startup():
     logging.basicConfig(level=logging.INFO)
     logging.info("Starting FastAPI server...")
 
-    FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
-
     await connect_db()
 
 @app.on_event("shutdown")
 async def shutdown():
     await close_db()
 
-@app.get("/db-time")
-async def get_db_time():
-    now = await fetch_now()
-    return {"db_time": str(now)}
+# @app.get("/db-time")
+# async def get_db_time():
+#     now = await fetch_now()
+#     return {"db_time": str(now)}
 
-@app.get("/timezone")
-async def get_timezone():
-    timezone = await fetch_now_timezone()
-    return {"timezone": timezone}
+# @app.get("/timezone")
+# async def get_timezone():
+#     timezone = await fetch_now_timezone()
+#     return {"timezone": timezone}
 
 @app.post("/time")
 @cache(expire=10)  # TTL 10 giây
 async def get_time(request: DiscoverKeywords):
     key = hashlib.md5(json.dumps(request.keyword, sort_keys=True).encode()).hexdigest()
-    # backend = FastAPICache.get_backend()
 
-    # cached = await backend.get(key)
-    # if cached:
-    #     print("✅ From cache")
-    #     return json.loads(cached)
-
-    # # Nếu chưa có cache, xử lý bình thường
-    # print("💡 Cache miss")
-    # result = {"data": "real result"}
-    # await backend.set(key, json.dumps(result), expire=15 * 60)
-    # return result
-
-    some_class.saveCache(key, {"data": "real result"}, expire=15 * 60)
-    time.sleep(2)  # Giả lập thời gian xử lý
-    return {"data": "real result"}
+    cached = await some_class.ManageCache.get(key)
+    logging.info(f"Cache key: {key}, Cached value: {cached}")
+    if cached:
+        print("✅ From cache")
+        return {"time cache": json.loads(cached)}
+    print("💡 Cache miss")
+    # Giả lập thời gian xử lý
+    timeNow = time.time()
+    logging.info(f"Current time for {request.keyword}: {timeNow}")
+    await some_class.ManageCache.set(key, json.dumps(timeNow), 15*60)
+    # Trả về thời gian hiện tại
+    # return {"time": time.time()}
+    return {"time": timeNow}
 
 @app.get("/")
 def healthcheck():
@@ -147,17 +141,36 @@ async def discoverKeywords(request: DiscoverKeywords):
     logging.info(f"Received request to discover keywords: {request.keyword}, Region: {request.regionCode}, Radar: {request.radar}")
 
     key = hashlib.md5(json.dumps("discoverKeywords".join(request.keyword).join(request.regionCode).join(request.radar), sort_keys=True).encode()).hexdigest()
-    backend = FastAPICache.get_backend()
+    # backend = FastAPICache.get_backend()
 
-    cached = await backend.get(key)
+    cached = await some_class.ManageCache.get(key)
     if cached:
         print("✅ From cache")
         return {"result": json.loads(cached)}
-
+    
+    cacheDB = await getDataAnalyticsByModule('module1', json.dumps({
+        "keyword": request.keyword,
+        "regionCode": request.regionCode,
+        "radar": request.radar
+    }))
+    logging.info(f"cacheDB: {cacheDB}")
+    if cacheDB:
+        print("✅ From cache DB")
+        return {"result": json.loads(cacheDB['response_data'])}
     # Nếu chưa có cache, xử lý bình thường
     print("💡 Cache miss")
     result = engine.discover_keywords(request.keyword, request.regionCode, request.radar)
-    await backend.set(key, json.dumps(result), expire=15 * 60)
+    await data_analytics_by_module_insert(
+        'module1',
+        'test_user',
+        {
+            "keyword": request.keyword,
+            "regionCode": request.regionCode,
+            "radar": request.radar
+        },
+        result
+    )
+    await some_class.ManageCache.set(key, json.dumps(result), 5 * 60)
     return {"result": result}
 
 @app.post("/fullAnalysisForKeyword")
