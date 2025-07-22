@@ -144,6 +144,7 @@ async def discoverKeywords(request: DiscoverKeywords):
     # backend = FastAPICache.get_backend()
 
     cached = await some_class.ManageCache.get(key)
+    # logging.info(f"Cache key: {key}, Cached value: {cached}")
     if cached:
         logging.info(f"Cache in memory hit for key: {key}")
         return {"result": json.loads(cached)}
@@ -155,6 +156,7 @@ async def discoverKeywords(request: DiscoverKeywords):
     }))
     if cacheDB:
         logging.info(f"Cache hit in database for key: {key}")
+        await some_class.ManageCache.set(key, cacheDB['response_data'], 5 * 60)
         return {"result": json.loads(cacheDB['response_data'])}
     # Nếu chưa có cache, xử lý bình thường
     logging.info(f"Cache miss for key: {key}, processing request...")
