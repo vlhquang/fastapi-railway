@@ -1,6 +1,6 @@
 import json
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException, Depends
 from pydantic import BaseModel
 from Core.analysis_engine_api import AnalysisEngineAPI
 from Core.database_manager import DatabaseManager
@@ -10,13 +10,30 @@ from Core.gemini_manager import GeminiManager
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.decorator import cache
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import hashlib
-import json
+import os
+from dotenv import load_dotenv
 
 import time
 
 from db import connect_db, close_db, fetch_now, fetch_now_timezone, data_analytics_by_module_insert, getDataAnalyticsByModule
 from manage_cache import ManageCache
+
+load_dotenv()
+
+VALID_TOKEN = os.getenv("AUTHOR_BEARER_TOKEN")
+
+class TokenAuth(HTTPBearer):
+    async def __call__(self, request: Request) -> HTTPAuthorizationCredentials:
+        credentials = await super().__call__(request)
+        if credentials.scheme.lower() != "bearer" or credentials.credentials != VALID_TOKEN:
+            raise HTTPException(status_code=401, detail="Invalid or missing token")
+        return credentials
+
+# Tạo instance để dùng trong Depends()
+token_auth_scheme = TokenAuth()
+
 
 app = FastAPI()
 
@@ -107,7 +124,7 @@ async def shutdown():
 def healthcheck():
     return {"status": "ok"}
 
-@app.post("/discoverKeywords")
+@app.post("/discoverKeywords", dependencies=[Depends(token_auth_scheme)])
 async def discoverKeywords(request: DiscoverKeywords):
     logging.info(f"Received request to discover keywords: {request.keyword}, Region: {request.regionCode}, Radar: {request.radar}")
 
@@ -145,7 +162,7 @@ async def discoverKeywords(request: DiscoverKeywords):
     await some_class.ManageCache.set(key, json.dumps(result), TIME_CACHE)
     return {"result": result}
 
-@app.post("/fullAnalysisForKeyword")
+@app.post("/fullAnalysisForKeyword", dependencies=[Depends(token_auth_scheme)])
 async def fullAnalysisForKeyword(request: FullAnalysisForKeyword):
     key = hashlib.md5(json.dumps('fullAnalysisForKeyword'.join(request.keyword).join(request.regionCode), sort_keys=True).encode()).hexdigest()
 
@@ -177,7 +194,7 @@ async def fullAnalysisForKeyword(request: FullAnalysisForKeyword):
     await some_class.ManageCache.set(key, json.dumps(result), TIME_CACHE)
     return {"result": result}
 
-@app.post("/fullAnalysisByChannelId")
+@app.post("/fullAnalysisByChannelId", dependencies=[Depends(token_auth_scheme)])
 async def fullAnalysisByChannelId(request: FullAnalysisByChannelId):
     key = hashlib.md5(json.dumps("fullAnalysisByChannelId".join(request.channelId).join(request.marketKeywords), sort_keys=True).encode()).hexdigest()
 
@@ -210,14 +227,9 @@ async def fullAnalysisByChannelId(request: FullAnalysisByChannelId):
     await some_class.ManageCache.set(key, json.dumps(result), TIME_CACHE)
     return {"result": result}
 
-@app.post("/aiSuggestion")
+@app.post("/aiSuggestion", dependencies=[Depends(token_auth_scheme)])
 def aiSuggestion(request: AiSuggestion):
     GeminiManager = some_class.GeminiManager
  
     result = GeminiManager.get_overtake_plan(request.analysisData.get('result'), request.marketKeywords)
-    return {"result": result}
-
-@app.post("/dataAnalyticsByModuleInsert")
-async def dataAnalyticsByModuleInsert():
-    result = await data_analytics_by_module_insert('test_module', 'test_user', {'key': 'value'}, {'response': 'data'})
     return {"result": result}
