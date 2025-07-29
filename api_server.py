@@ -73,6 +73,8 @@ api_manager = ApiManager(api_keys=some_class.api_keys)
 db_manager = DatabaseManager()
 engine = AnalysisEngineAPI(api_manager, db_manager)
 
+TIME_CACHE = 5 * 60  # 5 minutes
+
 class DiscoverKeywords(BaseModel):
     keyword: str
     regionCode: str
@@ -101,42 +103,11 @@ async def startup():
 async def shutdown():
     await close_db()
 
-# @app.get("/db-time")
-# async def get_db_time():
-#     now = await fetch_now()
-#     return {"db_time": str(now)}
-
-# @app.get("/timezone")
-# async def get_timezone():
-#     timezone = await fetch_now_timezone()
-#     return {"timezone": timezone}
-
-@app.post("/time")
-@cache(expire=10)  # TTL 10 giây
-async def get_time(request: DiscoverKeywords):
-    key = hashlib.md5(json.dumps(request.keyword, sort_keys=True).encode()).hexdigest()
-
-    cached = await some_class.ManageCache.get(key)
-    logging.info(f"Cache key: {key}, Cached value: {cached}")
-    if cached:
-        print("✅ From cache")
-        return {"time cache": json.loads(cached)}
-    print("💡 Cache miss")
-    # Giả lập thời gian xử lý
-    timeNow = time.time()
-    logging.info(f"Current time for {request.keyword}: {timeNow}")
-    await some_class.ManageCache.set(key, json.dumps(timeNow), 15*60)
-    # Trả về thời gian hiện tại
-    # return {"time": time.time()}
-    return {"time": timeNow}
-
 @app.get("/")
 def healthcheck():
     return {"status": "ok"}
 
 @app.post("/discoverKeywords")
-@cache(expire=15*60)  # TTL 15 phút
-# @cache(namespace="discover_keywords")  # Sử dụng namespace để phân tách cache
 async def discoverKeywords(request: DiscoverKeywords):
     logging.info(f"Received request to discover keywords: {request.keyword}, Region: {request.regionCode}, Radar: {request.radar}")
 
@@ -156,7 +127,7 @@ async def discoverKeywords(request: DiscoverKeywords):
     }))
     if cacheDB:
         logging.info(f"Cache hit in database for key: {key}")
-        await some_class.ManageCache.set(key, cacheDB['response_data'], 5 * 60)
+        await some_class.ManageCache.set(key, cacheDB['response_data'], TIME_CACHE)
         return {"result": json.loads(cacheDB['response_data'])}
     # Nếu chưa có cache, xử lý bình thường
     logging.info(f"Cache miss for key: {key}, processing request...")
@@ -171,53 +142,72 @@ async def discoverKeywords(request: DiscoverKeywords):
         },
         result
     )
-    await some_class.ManageCache.set(key, json.dumps(result), 5 * 60)
+    await some_class.ManageCache.set(key, json.dumps(result), TIME_CACHE)
     return {"result": result}
 
 @app.post("/fullAnalysisForKeyword")
 async def fullAnalysisForKeyword(request: FullAnalysisForKeyword):
-    
-    # 1
-    # result = engine.discover_keywords(request.keyword, request.region_code, request.radar)
-    # 2
-    # result = engine.full_analysis_for_keyword(request.keyword, request.regionCode)
-    # return {"result": result}
-
     key = hashlib.md5(json.dumps('fullAnalysisForKeyword'.join(request.keyword).join(request.regionCode), sort_keys=True).encode()).hexdigest()
-    backend = FastAPICache.get_backend()
 
-    cached = await backend.get(key)
+    cached = await some_class.ManageCache.get(key)
     if cached:
         print("✅ From cache")
         return {"result": json.loads(cached)}
 
-    # Nếu chưa có cache, xử lý bình thường
-    print("💡 Cache miss")
+    cacheDB = await getDataAnalyticsByModule('module2.1', json.dumps({
+        "keyword": request.keyword,
+        "regionCode": request.regionCode
+    }))
+
+    if cacheDB:
+        logging.info(f"Cache hit in database for key: {key}")
+        await some_class.ManageCache.set(key, cacheDB['response_data'], TIME_CACHE)
+        return {"result": json.loads(cacheDB['response_data'])}
+    
     result = engine.full_analysis_for_keyword(request.keyword, request.regionCode)
-    await backend.set(key, json.dumps(result), expire=15 * 60)
+    await data_analytics_by_module_insert(
+        'module2.1',
+        'test_user',
+        {
+            "keyword": request.keyword,
+            "regionCode": request.regionCode
+        },
+        result
+    )
+    await some_class.ManageCache.set(key, json.dumps(result), TIME_CACHE)
     return {"result": result}
 
 @app.post("/fullAnalysisByChannelId")
 async def fullAnalysisByChannelId(request: FullAnalysisByChannelId):
-    
-    # 1
-    # result = engine.discover_keywords(request.keyword, request.region_code, request.radar)
-    # 2
-    # result = engine.analyze_competitor_for_m4(request.channelId, request.marketKeywords)
-    # return {"result": result}
-
     key = hashlib.md5(json.dumps("fullAnalysisByChannelId".join(request.channelId).join(request.marketKeywords), sort_keys=True).encode()).hexdigest()
-    backend = FastAPICache.get_backend()
 
-    cached = await backend.get(key)
+    cached = await some_class.ManageCache.get(key)
     if cached:
         print("✅ From cache")
         return {"result": json.loads(cached)}
 
     # Nếu chưa có cache, xử lý bình thường
-    print("💡 Cache miss")
+    cacheDB = await getDataAnalyticsByModule('module2.2', json.dumps({
+        "channelId": request.channelId,
+        "marketKeywords": request.marketKeywords
+    }))
+
+    if cacheDB:
+        logging.info(f"Cache hit in database for key: {key}")
+        await some_class.ManageCache.set(key, cacheDB['response_data'], TIME_CACHE)
+        return {"result": json.loads(cacheDB['response_data'])}
+    
     result = engine.analyze_competitor_for_m4(request.channelId, request.marketKeywords)
-    await backend.set(key, json.dumps(result), expire=15 * 60)
+    await data_analytics_by_module_insert(
+        'module2.2',
+        'test_user',
+        {
+            "channelId": request.channelId,
+            "marketKeywords": request.marketKeywords
+        },
+        result
+    )
+    await some_class.ManageCache.set(key, json.dumps(result), TIME_CACHE)
     return {"result": result}
 
 @app.post("/aiSuggestion")
