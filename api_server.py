@@ -28,6 +28,7 @@ VALID_TOKEN = os.getenv("AUTHOR_BEARER_TOKEN")
 class TokenAuth(HTTPBearer):
     async def __call__(self, request: Request) -> HTTPAuthorizationCredentials:
         credentials = await super().__call__(request)
+        logging.debug(f"Received credentials: {credentials}")
         if credentials.scheme.lower() != "bearer" or credentials.credentials != VALID_TOKEN:
             raise HTTPException(status_code=401, detail="Invalid or missing token")
         return credentials
@@ -95,7 +96,7 @@ TIME_CACHE = 5 * 60  # 5 minutes
 
 class Login(BaseModel):
     email: str
-    jwt: str
+    token: str
 
 class Logout(BaseModel):
     userId: str
