@@ -16,6 +16,7 @@ import os
 from dotenv import load_dotenv
 
 import time
+import uuid
 
 from db import connect_db, close_db, fetch_now, fetch_now_timezone, data_analytics_by_module_insert, getDataAnalyticsByModule
 from manage_cache import ManageCache
@@ -248,4 +249,4 @@ def aiSuggestion(request: AiSuggestion):
 @app.post("/login", dependencies=[Depends(token_auth_scheme)])
 def login(request: Login):
     logging.info(f"User {request.email} logged in with JWT: {request.jwt}")
-    return {"result": request}
+    return {"result": uuid.uuid4().hex}  # Return a random userId for simplicity
