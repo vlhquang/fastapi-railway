@@ -249,5 +249,5 @@ def aiSuggestion(request: AiSuggestion):
 
 @app.post("/login", dependencies=[Depends(token_auth_scheme)])
 def login(request: Login):
-    logging.info(f"User {request.email} logged in with JWT: {request.jwt}")
+    logging.info(f"User {request.email} logged in with JWT: {request.token}")
     return {"result": uuid.uuid4().hex}  # Return a random userId for simplicity
