@@ -92,7 +92,15 @@ engine = AnalysisEngineAPI(api_manager, db_manager)
 
 TIME_CACHE = 5 * 60  # 5 minutes
 
+class Login(BaseModel):
+    email: str
+    jwt: str
+
+class Logout(BaseModel):
+    userId: str
+
 class DiscoverKeywords(BaseModel):
+    userId: str
     keyword: str
     regionCode: str
     radar: str
@@ -127,6 +135,9 @@ def healthcheck():
 @app.post("/discoverKeywords", dependencies=[Depends(token_auth_scheme)])
 async def discoverKeywords(request: DiscoverKeywords):
     logging.info(f"Received request to discover keywords: {request.keyword}, Region: {request.regionCode}, Radar: {request.radar}")
+    userId = request.userId or "default_user"
+    if (userId == "default_user"):
+        logging.warning("No userId provided, using default 'default_user'.")
 
     key = hashlib.md5(json.dumps("discoverKeywords".join(request.keyword).join(request.regionCode).join(request.radar), sort_keys=True).encode()).hexdigest()
     # backend = FastAPICache.get_backend()
@@ -233,3 +244,8 @@ def aiSuggestion(request: AiSuggestion):
  
     result = GeminiManager.get_overtake_plan(request.analysisData.get('result'), request.marketKeywords)
     return {"result": result}
+
+@app.post("/login", dependencies=[Depends(token_auth_scheme)])
+def login(request: Login):
+    logging.info(f"User {request.email} logged in with JWT: {request.jwt}")
+    return {"result": request}
