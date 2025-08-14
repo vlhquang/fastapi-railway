@@ -2,6 +2,7 @@ import json
 import logging
 from fastapi import FastAPI, Request, HTTPException, Depends
 from pydantic import BaseModel
+import ActionLogModel
 from Core.analysis_engine_api import AnalysisEngineAPI
 from Core.database_manager import DatabaseManager
 from main_window import ApiManager  # Import ApiManager from main_window.py
@@ -18,8 +19,9 @@ from dotenv import load_dotenv
 import time
 import uuid
 
-from db import connect_db, close_db, fetch_now, fetch_now_timezone, data_analytics_by_module_insert, getDataAnalyticsByModule
+from db import connect_db, close_db, fetch_now, fetch_now_timezone, data_analytics_by_module_insert, getDataAnalyticsByModule, handle_login_db, check_account_login_by_user_id, handle_update_action_log_account_db
 from manage_cache import ManageCache
+from util import write_log
 
 load_dotenv()
 
@@ -108,14 +110,17 @@ class DiscoverKeywords(BaseModel):
     radar: str
 
 class FullAnalysisForKeyword(BaseModel):
+    userId: str
     keyword: str
     regionCode: str
 
 class FullAnalysisByChannelId(BaseModel):
+    userId: str
     channelId: str
     marketKeywords: list[str]
 
 class AiSuggestion(BaseModel):
+    userId: str
     analysisData: dict  # Accept as JSON string
     marketKeywords: list[str]
 
@@ -136,44 +141,136 @@ def healthcheck():
 
 @app.post("/discoverKeywords", dependencies=[Depends(token_auth_scheme)])
 async def discoverKeywords(request: DiscoverKeywords):
-    logging.info(f"Received request to discover keywords: {request.keyword}, Region: {request.regionCode}, Radar: {request.radar}")
-    userId = request.userId or "default_user"
-    if (userId == "default_user"):
-        logging.warning("No userId provided, using default 'default_user'.")
-
-    key = hashlib.md5(json.dumps("discoverKeywords".join(request.keyword).join(request.regionCode).join(request.radar), sort_keys=True).encode()).hexdigest()
-    # backend = FastAPICache.get_backend()
-
-    cached = await some_class.ManageCache.get(key)
-    # logging.info(f"Cache key: {key}, Cached value: {cached}")
-    if cached:
-        logging.info(f"Cache in memory hit for key: {key}")
-        return {"result": json.loads(cached)}
+    write_log("discoverKeywords", "begin", f"Received request: {request.json()}")
+    userId = request.userId
+    if not userId:
+        raise HTTPException(status_code=400, detail="userId is required")
     
-    cacheDB = await getDataAnalyticsByModule('module1', json.dumps({
-        "keyword": request.keyword,
-        "regionCode": request.regionCode,
-        "radar": request.radar
-    }))
-    if cacheDB:
-        logging.info(f"Cache hit in database for key: {key}")
-        await some_class.ManageCache.set(key, cacheDB['response_data'], TIME_CACHE)
-        return {"result": json.loads(cacheDB['response_data'])}
+    check_account_login_by_user_id_result = await check_account_login_by_user_id(userId)
+    if not check_account_login_by_user_id_result:
+        raise HTTPException(status_code=404, detail="User not found or not logged in")
+    
+    jsonActionLog = check_account_login_by_user_id_result['action_log']
+    write_log("discoverKeywords", "call check_account_login_by_user_id_result", f"Action log for user {userId}: {jsonActionLog}")
+    if jsonActionLog == "null" or jsonActionLog == "" or jsonActionLog is None:
+        write_log("discoverKeywords", "get data db is null", f"Action log is empty for user {userId}, initializing...")
+        jsonActionLog = {
+            "module1": {
+                "countCallAPI": 0
+            }
+        }
+    else:
+        jsonActionLog = json.loads(jsonActionLog)
+    write_log("discoverKeywords", "result jsonActionLog", f"Parsed action log for user {userId}: {jsonActionLog}")
+    actionLogModel = ActionLogModel.ActionLogModel(jsonActionLog)
+    dataModule1 = actionLogModel.getDataModule1()
+    write_log("discoverKeywords", "load module dataModule1", f"Module1 data: {dataModule1.toString()}")
+    if not dataModule1:
+        write_log("discoverKeywords", True, f"Module1 data is empty for user {userId}")
+        raise HTTPException(status_code=500, detail="Module1 data is empty")
+    
+    if dataModule1.allowSearchDB():
+        write_log("discoverKeywords", "allow search DB", f"Allowing search in DB for module1: {dataModule1.countCallAPI}")
+        cacheDB = await getDataAnalyticsByModule('module1', json.dumps({
+                "keyword": request.keyword,
+                "regionCode": request.regionCode,
+                "radar": request.radar
+        }))
+        if cacheDB:
+            write_log("discoverKeywords", "find data in DB", f"Cache hit in database for module1: {cacheDB['response_data']}")
+            dataModule1.increaseCountCallAPI()
+            await handle_update_action_log_account_db(userId, actionLogModel.toJson(dataModule1))
+            return {"result": json.loads(cacheDB['response_data'])}
+        
+        else:
+            write_log("discoverKeywords", False, f"No cache found in database for module1, proceeding with API call")
+            if dataModule1.allowSearchAPI():
+                result = engine.discover_keywords(request.keyword, request.regionCode, request.radar)
+                await data_analytics_by_module_insert(
+                    'module1',
+                    'test_user',
+                    {
+                        "keyword": request.keyword,
+                        "regionCode": request.regionCode,
+                        "radar": request.radar
+                    },
+                    result
+                )
+
+                if result:
+                    dataModule1.increaseCountCallAPI()
+                    return {"result": result}
+            else:
+                write_log("discoverKeywords", True, f"API call limit reached for module1: {dataModule1.countCallAPI}")
+                raise HTTPException(status_code=429, detail="API call limit reached for module1")
+    else:
+        write_log("discoverKeywords", True, f"Search in DB not allowed for module1: {dataModule1.countCallAPI}")
+        raise HTTPException(status_code=403, detail="Search in DB not allowed for module1")        
+
+
+
+
+
+
+    # if dataModule1.allowSearchAPI():
+    #     if not dataModule1.allowSearchDB():
+    #         write_log("discoverKeywords", True, f"API call limit reached for module1: {dataModule1.countCallAPI}")
+    #         raise HTTPException(status_code=429, detail="API call limit reached for module1")
+    #     else:
+    #         write_log("discoverKeywords", False, f"Allowing search in DB for module1: {dataModule1.countCallAPI}")
+    #         key = hashlib.md5(json.dumps("discoverKeywords".join(request.keyword).join(request.regionCode).join(request.radar), sort_keys=True).encode()).hexdigest()
+    #         # backend = FastAPICache.get_backend()
+
+    #         cached = await some_class.ManageCache.get(key)
+    #         # logging.info(f"Cache key: {key}, Cached value: {cached}")
+    #         if cached:
+    #             write_log("discoverKeywords", False, f"Cache hit for key: {key}")
+    #             return {"result": json.loads(cached)}
+            
+    #         cacheDB = await getDataAnalyticsByModule('module1', json.dumps({
+    #             "keyword": request.keyword,
+    #             "regionCode": request.regionCode,
+    #             "radar": request.radar
+    #         }))
+    #         if cacheDB:
+    #             write_log("discoverKeywords", False, f"Cache hit in database for key: {key}")
+    #             await some_class.ManageCache.set(key, cacheDB['response_data'], TIME_CACHE)
+    #             return {"result": json.loads(cacheDB['response_data'])}
+            # Handle DB search logic here if needed
+            # For example, you can fetch data from the database instead of calling the API
+            # return {"result": "Data from DB"}
+    # countCallAPI = jsonModule.get('countCallAPI', 0)
+    # write_log("discoverKeywords", False, f"Current API call count for module1: {countCallAPI}")
+    # if countCallAPI >= 10:
+    #     write_log("discoverKeywords", True, f"API call limit reached for module1: {countCallAPI}")
+    #     raise HTTPException(status_code=429, detail="API call limit reached for module1")
+    # else:
+    #     jsonModule = {
+    #         "countCallAPI": countCallAPI + 1
+    #     }
+        
+    #     jsonActionLog = {
+    #         "module1": jsonModule
+    #     }
+    #     # jsonActionLog['action_log']['module1'] = jsonModule
+    #     await handle_update_action_log_account_db(userId, json.dumps(jsonActionLog))
+
+    
     # Nếu chưa có cache, xử lý bình thường
-    logging.info(f"Cache miss for key: {key}, processing request...")
-    result = engine.discover_keywords(request.keyword, request.regionCode, request.radar)
-    await data_analytics_by_module_insert(
-        'module1',
-        'test_user',
-        {
-            "keyword": request.keyword,
-            "regionCode": request.regionCode,
-            "radar": request.radar
-        },
-        result
-    )
-    await some_class.ManageCache.set(key, json.dumps(result), TIME_CACHE)
-    return {"result": result}
+    # write_log("discoverKeywords", False, f"Processing request for keyword: {request.keyword}, regionCode: {request.regionCode}, radar: {request.radar}")
+    # result = engine.discover_keywords(request.keyword, request.regionCode, request.radar)
+    # await data_analytics_by_module_insert(
+    #     'module1',
+    #     'test_user',
+    #     {
+    #         "keyword": request.keyword,
+    #         "regionCode": request.regionCode,
+    #         "radar": request.radar
+    #     },
+    #     result
+    # )
+    # await some_class.ManageCache.set(key, json.dumps(result), TIME_CACHE)
+    # return {"result": result}
 
 @app.post("/fullAnalysisForKeyword", dependencies=[Depends(token_auth_scheme)])
 async def fullAnalysisForKeyword(request: FullAnalysisForKeyword):
@@ -248,6 +345,13 @@ def aiSuggestion(request: AiSuggestion):
     return {"result": result}
 
 @app.post("/login", dependencies=[Depends(token_auth_scheme)])
-def login(request: Login):
-    logging.info(f"User {request.email} logged in with JWT: {request.token}")
-    return {"result": uuid.uuid4().hex}  # Return a random userId for simplicity
+async def login(request: Login):
+    logging.info(f"User {request.email} logged in with token: {request.token}")
+    
+    user_id = await handle_login_db(request.email, request.token)
+    return {"result": user_id}  # Return a random userId for simplicity
+
+@app.post("/logout", dependencies=[Depends(token_auth_scheme)])
+def logout(request: Logout):
+    logging.info(f"User {request.userId} logged out")
+    return {"result": request.userId }  # Return a random userId for simplicity
